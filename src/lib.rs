@@ -423,8 +423,12 @@ impl ObjPool {
     }
 
     pub fn put(&self, data: &[u8], data_type: u64) -> Result<ObjRawKey, Error> {
-        let oid = alloc(self.inner, data.len(), data_type)?;
-        self.update_by_rawkey(oid.into(), data, None)
+        let key = self.allocate(data.len(), data_type)?;
+        self.update_by_rawkey(key, data, None)
+    }
+
+    pub fn allocate(&self, size: usize, data_type: u64) -> Result<ObjRawKey, Error> {
+        alloc(self.inner, size, data_type).map(|oid| oid.into())
     }
 
     pub fn remove(&self, key: ObjRawKey) -> Result<(), Error> {
