@@ -560,7 +560,7 @@ mod tests {
 
     impl TmpPool {
         fn prepare(name: &str) -> Result<(tempfile::TempDir, PathBuf), Error> {
-            let dir = tempfile::tempdir().map_err(|_| ErrorKind::GenericError)?;
+            let dir = tempfile::tempdir_in("./").map_err(|_| ErrorKind::GenericError)?;
             let path = dir.path().join(name);
             Ok((dir, path))
         }
@@ -1021,7 +1021,7 @@ mod tests {
     fn bench_var_alloc(b: &mut Bencher) {
         let size = 0xa0_000_000;
         let nthreads = 10;
-        let nobj = 10;
+        let nobj = 100;
         let (
             TmpPool {
                 inner: pool,
