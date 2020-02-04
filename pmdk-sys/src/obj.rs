@@ -35,6 +35,7 @@ extern "C" {
         constructor: Option<pmemobj_constr>,
         arg: *mut c_void,
     ) -> c_int;
+    pub fn pmemobj_alloc_usable_size(oid: PMEMoid) -> usize;
     pub fn pmemobj_free(oidp: *mut PMEMoid);
 
     pub fn pmemobj_memcpy_persist(
