@@ -5,7 +5,7 @@ clean:
 test:
     cargo test --all
 clippy:
-    cargo clippy --all --all-targets
+    cargo clippy --all --tests --all-targets
 pedantic:
     cargo clippy --all --all-targets --features pedantic
 update:
