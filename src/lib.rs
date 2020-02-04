@@ -24,13 +24,15 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crossbeam_queue::ArrayQueue;
-use libc::{c_char, c_void};
+use lazy_static::lazy_static;
+use libc::{c_char, c_int, c_void};
 use libc::{mode_t, size_t};
 
 use pmdk_sys::obj::{
-    pmemobj_alloc, pmemobj_close, pmemobj_create, pmemobj_ctl_exec, pmemobj_ctl_get,
-    pmemobj_ctl_set, pmemobj_direct, pmemobj_first, pmemobj_free, pmemobj_memcpy_persist,
-    pmemobj_next, pmemobj_oid, pmemobj_type_num, PMEMobjpool as SysPMEMobjpool,
+    pmemobj_alloc, pmemobj_alloc_usable_size, pmemobj_close, pmemobj_create, pmemobj_ctl_exec,
+    pmemobj_ctl_get, pmemobj_ctl_set, pmemobj_direct, pmemobj_first, pmemobj_free,
+    pmemobj_memcpy_persist, pmemobj_next, pmemobj_oid, pmemobj_type_num,
+    PMEMobjpool as SysPMEMobjpool,
 };
 pub use pmdk_sys::PMEMoid;
 
@@ -41,10 +43,18 @@ use pmdk_sys::pmempool_rm;
 
 mod error;
 
-fn str_as_c_char(s: &str) -> Result<*const c_char, Error> {
-    CString::new(s)
-        .map(|cs| cs.as_ptr() as *const c_char)
-        .wrap_err(ErrorKind::GenericError)
+lazy_static! {
+    static ref QUERY_ARENA_CREATE: CString = CString::new("heap.arena.create").unwrap();
+    static ref QUERY_THREAD_ARENA_ID: CString = CString::new("heap.thread.arena_id").unwrap();
+    static ref QUERY_STATS_HEAP_CURR_ALLOCATED: CString =
+        CString::new("stats.heap.curr_allocated").unwrap();
+}
+
+fn status_as_result(status: c_int) -> Result<(), Error> {
+    match status {
+        0 => Ok(()),
+        _ => Err(Error::obj_error()),
+    }
 }
 
 fn alloc(pop: *mut SysPMEMobjpool, size: usize, data_type: u64) -> Result<PMEMoid, Error> {
@@ -470,26 +480,54 @@ impl ObjPool {
         unsafe { pmemobj_first(self.inner) }.into()
     }
 
-    /// Create and set arena for current thread
+    /// pmemobj_ctl_exec wrapper
     /// # Safety
     /// Working with raw pointers potentially unsafe
-    pub unsafe fn thread_arena_init(&self) -> Result<(), Error> {
-        let mut arena_id: u32 = 0;
-        let name = str_as_c_char("heap.arena.create")?;
-        let _ret = pmemobj_ctl_exec(self.inner, name, &mut arena_id as *mut u32 as *mut c_void);
-        let name = str_as_c_char("heap.thread.arena_id")?;
-        let _ret = pmemobj_ctl_set(self.inner, name, &mut arena_id as *mut u32 as *mut c_void);
-        Ok(())
+    unsafe fn ctl_exec<T: Sized>(&self, query: &CString, val: &mut T) -> Result<(), Error> {
+        let ret = pmemobj_ctl_exec(self.inner, query.as_ptr(), val as *mut T as *mut c_void);
+        status_as_result(ret)
     }
 
-    /// Get heap arena id
+    /// pmemobj_ctl_set wrapper
     /// # Safety
     /// Working with raw pointers potentially unsafe
-    pub unsafe fn thread_arena_get(&self) -> Result<u32, Error> {
+    unsafe fn ctl_set<T: Sized>(&self, query: &CString, val: &mut T) -> Result<(), Error> {
+        let ret = pmemobj_ctl_set(self.inner, query.as_ptr(), val as *mut T as *mut c_void);
+        status_as_result(ret)
+    }
+
+    /// pmemobj_ctl_set wrapper
+    /// # Safety
+    /// Working with raw pointers potentially unsafe
+    unsafe fn ctl_get<T: Sized>(&self, query: &CString, val: &mut T) -> Result<(), Error> {
+        let ret = pmemobj_ctl_get(self.inner, query.as_ptr(), val as *mut T as *mut c_void);
+        status_as_result(ret)
+    }
+
+    pub fn thread_arena_init(&self) -> Result<u32, Error> {
         let mut arena_id: u32 = 0;
-        let name = str_as_c_char("heap.thread.arena_id")?;
-        let _ret = pmemobj_ctl_get(self.inner, name, &mut arena_id as *mut u32 as *mut c_void);
-        Ok(arena_id)
+        unsafe {
+            self.ctl_exec(&QUERY_ARENA_CREATE, &mut arena_id)?;
+            self.ctl_set(&QUERY_THREAD_ARENA_ID, &mut arena_id)
+        }
+        .map(|_| arena_id)
+    }
+
+    pub fn thread_arena_get(&self) -> Result<u32, Error> {
+        let mut arena_id: u32 = 0;
+        unsafe { self.ctl_get(&QUERY_THREAD_ARENA_ID, &mut arena_id) }.map(|_| arena_id)
+    }
+
+    pub fn allocated_size_get(&self) -> Result<u64, Error> {
+        let mut size: u64 = 0;
+        unsafe { self.ctl_get(&QUERY_STATS_HEAP_CURR_ALLOCATED, &mut size) }.map(|_| size)
+    }
+
+    pub fn thread_allocated_size_get(&self, arena_id: u32) -> Result<u64, Error> {
+        let query = CString::new(format!("heap.arena.{}.size", arena_id))
+            .wrap_err(ErrorKind::GenericError)?;
+        let mut size: u64 = 0;
+        unsafe { self.ctl_get(&query, &mut size) }.map(|_| size)
     }
 }
 
@@ -537,6 +575,7 @@ mod tests {
 
     use std::collections::HashMap;
     use std::mem;
+    use std::slice::SliceIndex;
     use std::sync::Arc;
 
     use core::ops::Deref;
@@ -960,22 +999,36 @@ mod tests {
     const RANDOM_DATA_SIZE: usize = 1024 * 1024;
     static IO_SIZES: &[usize] = &[1024 * 1024, 128 * 1024, 64 * 1024, 32 * 1024, 16 * 1024];
 
-    fn var_alloc_task(pool: Arc<ObjPool>, io_sizes_start: usize, nobj: usize) -> Result<(), Error> {
+    fn var_alloc_task_ex<I>(
+        pool: Arc<ObjPool>,
+        io_sizes: I,
+        nobj: usize,
+    ) -> Result<Vec<ObjRawKey>, Error>
+    where
+        I: SliceIndex<[usize], Output = [usize]>,
+    {
         use rand::Rng;
-        let arena_id = unsafe { pool.thread_arena_get() }?;
-        let io_sizes: &'static [usize] = &IO_SIZES[io_sizes_start..];
+        let arena_id = pool.thread_arena_get()?;
+        let io_sizes: &'static [usize] = &IO_SIZES[io_sizes];
 
         let mut rng = rand::thread_rng();
         let random_data = (0..RANDOM_DATA_SIZE)
             .map(|_| rng.gen_range(0, std::u8::MAX))
             .collect::<Vec<u8>>();
-        let keys = (0..nobj)
+        (0..nobj)
             .map(|i| {
                 let size = io_sizes[(i + arena_id as usize) % io_sizes.len()];
                 pool.put(&random_data[0..size], 0)
             })
-            .collect::<Result<Vec<ObjRawKey>, Error>>()?;
-        keys.into_iter()
+            .collect::<Result<Vec<ObjRawKey>, Error>>()
+    }
+
+    fn var_alloc_rm_task<I>(pool: Arc<ObjPool>, io_sizes: I, nobj: usize) -> Result<(), Error>
+    where
+        I: SliceIndex<[usize], Output = [usize]>,
+    {
+        var_alloc_task_ex(Arc::clone(&pool), io_sizes, nobj)?
+            .into_iter()
             .map(|key| pool.remove(key))
             .collect::<Result<Vec<()>, Error>>()
             .map(|_| ())
@@ -987,7 +1040,7 @@ mod tests {
         let obj_pool_clone = obj_pool.clone();
         let threads = CpuPoolBuilder::new()
             .pool_size(nthreads)
-            .after_start(move || unsafe {
+            .after_start(move || {
                 obj_pool_clone
                     .clone()
                     .thread_arena_init()
@@ -997,17 +1050,21 @@ mod tests {
         Ok((obj_pool, threads))
     }
 
-    fn var_alloc_run(
+    fn var_alloc_run<I>(
         obj_pool: Arc<ObjPool>,
         threads: CpuPool,
         nthreads: usize,
         nobj: usize,
-        io_sizes_start: usize,
-    ) -> Result<(), Error> {
+        io_sizes: I,
+    ) -> Result<(), Error>
+    where
+        I: SliceIndex<[usize], Output = [usize]> + Clone + Send + 'static,
+    {
         futures::future::join_all((0..nthreads).map(move |_| {
             let obj_pool_for_task = obj_pool.clone();
+            let io_sizes_clone = io_sizes.clone();
             threads.spawn_fn(move || {
-                var_alloc_task(Arc::clone(&obj_pool_for_task), io_sizes_start, nobj)
+                var_alloc_rm_task(Arc::clone(&obj_pool_for_task), io_sizes_clone.clone(), nobj)
             })
         }))
         .wait()
@@ -1016,7 +1073,7 @@ mod tests {
 
     #[test]
     fn var_alloc_basic() -> Result<(), Error> {
-        let size = 0xa0_000_000;
+        let size = 3 * 1024 * 1024 * 1024;
         let nthreads = 10;
         let nobj = 1000;
         let (
@@ -1026,7 +1083,68 @@ mod tests {
             },
             threads,
         ) = var_alloc_prepare(size, nthreads)?;
-        var_alloc_run(Arc::clone(&pool), threads, nthreads, nobj, 1)
+        var_alloc_run(Arc::clone(&pool), threads, nthreads, nobj, 1usize..)
+    }
+
+    fn alloc_size_task(pool: Arc<ObjPool>, nobj: usize) -> Result<(), Error> {
+        {
+            // Enable stats
+            let q = CString::new("stats.enabled").unwrap();
+            let mut enabled: i32 = 1;
+            unsafe { pool.ctl_set(&q, &mut enabled) }?;
+        }
+        let arena_id = pool.thread_arena_get()?;
+        let arena_size = pool.thread_allocated_size_get(arena_id)?;
+        if arena_size > 0 {
+            return Err(ErrorKind::GenericError.into());
+        }
+
+        let size = pool.allocated_size_get()?;
+        if size > 0 {
+            return Err(ErrorKind::GenericError.into());
+        }
+
+        let all_obj_size = nobj * 1024 * 1024;
+        let _ = var_alloc_task_ex(Arc::clone(&pool), ..1, nobj)?;
+        let obj_size_sum: usize = var_alloc_task_ex(Arc::clone(&pool), ..1, nobj)?
+            .into_iter()
+            .map(|key| pool.obj_size_get(key).map(|(obj_size, _)| obj_size))
+            .collect::<Result<Vec<usize>, Error>>()?
+            .into_iter()
+            .sum();
+        if obj_size_sum < all_obj_size {
+            return Err(ErrorKind::GenericError.into());
+        }
+
+        let size = pool.thread_allocated_size_get(arena_id)?;
+        if size == 0 {
+            return Err(ErrorKind::GenericError.into());
+        }
+
+        let size = pool.allocated_size_get()?;
+        if (size as usize) < all_obj_size {
+            return Err(ErrorKind::GenericError.into());
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn alloc_size() -> Result<(), Error> {
+        let size = 3 * 1024 * 1024 * 1024;
+        let nthreads = 1;
+        let nobj = 1000;
+        let (
+            TmpPool {
+                inner: pool,
+                dir: _tmp_dir,
+            },
+            threads,
+        ) = var_alloc_prepare(size, nthreads)?;
+        threads
+            .spawn_fn(move || alloc_size_task(Arc::clone(&pool), nobj))
+            .wait()
+            .map(|_| ())
     }
 
     #[bench]
@@ -1041,6 +1159,6 @@ mod tests {
             },
             threads,
         ) = var_alloc_prepare(size, nthreads).expect("bench var alloc prepare");
-        b.iter(|| var_alloc_run(Arc::clone(&pool), threads.clone(), nthreads, nobj, 1));
+        b.iter(|| var_alloc_run(Arc::clone(&pool), threads.clone(), nthreads, nobj, ..));
     }
 }
