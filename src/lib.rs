@@ -431,11 +431,23 @@ impl ObjPool {
         alloc(self.inner, size, data_type).map(|oid| oid.into())
     }
 
-    pub fn remove(&self, key: ObjRawKey) -> Result<(), Error> {
-        let mut oid = PMEMoid::from(key);
-        if self.uuid_lo != oid.pool_uuid_lo() {
-            return Err(ErrorKind::PmdkKeyNotBelongToPool.into());
+    fn key_to_oid(&self, key: ObjRawKey) -> Result<PMEMoid, Error> {
+        let oid = PMEMoid::from(key);
+        if self.uuid_lo == oid.pool_uuid_lo() {
+            Ok(oid)
+        } else {
+            Err(ErrorKind::PmdkKeyNotBelongToPool.into())
         }
+    }
+
+    pub fn obj_size_get(&self, key: ObjRawKey) -> Result<(usize, ObjRawKey), Error> {
+        let oid = self.key_to_oid(key)?;
+        let size = unsafe { pmemobj_alloc_usable_size(oid) };
+        Ok((size, oid.into()))
+    }
+
+    pub fn remove(&self, key: ObjRawKey) -> Result<(), Error> {
+        let mut oid = self.key_to_oid(key)?;
         unsafe { pmemobj_free(&mut oid as *mut PMEMoid) };
         Ok(())
     }
