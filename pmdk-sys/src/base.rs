@@ -52,4 +52,7 @@ impl pmemoid {
     }
 }
 
+// struct of 2 u64, (pool-id, offset): (u64, u64)
+// PMEM holds a global variable in memory and lookup offset in pool (obj, block, or misc)
+// must be translated into a pointer
 pub type PMEMoid = pmemoid;

@@ -83,35 +83,21 @@ fn alloc(pop: *mut SysPMEMobjpool, size: usize, data_type: u64) -> Result<PMEMoi
 
 fn alloc_multi(
     pool: Arc<ObjPool>,
-    queue: Arc<ArrayQueue<ObjRawKey>>,
+    mut queue: Arc<ArrayQueue<ObjRawKey>>,
     size: usize,
     data_type: u64,
     nobjects: usize,
 ) -> Result<(), Error> {
-    let mut queue = queue;
-    (0..nobjects)
-        .map(|_| {
-            if Arc::get_mut(&mut queue).is_some() {
-                Err(ErrorKind::PmdkDropBeforeAllocationError.into())
-            } else {
-                let oid = alloc(pool.inner, size, data_type)?;
-                queue
-                    .push(oid.into())
-                    .wrap_err(ErrorKind::PmdkNoSpaceInQueueError)
-            }
-        })
-        .collect::<Result<Vec<()>, Error>>()
-        .map(|_| ())
-        .or_else(|e| {
-            match e.kind() {
-                ErrorKind::PmdkDropBeforeAllocationError => {
-                    // TODO: trace it
-                    println!("{}", e);
-                    Ok(())
-                }
-                _ => Err(e),
-            }
-        })
+    for _ in 0..nobjects {
+        // stop if this is the only context, i.e. we get get a mutable reference
+        if Arc::get_mut(&mut queue).is_some() {
+            break;
+        }
+        queue
+            .push(alloc(pool.inner, size, data_type)?.into())
+            .wrap_err(ErrorKind::PmdkNoSpaceInQueueError)?;
+    }
+    Ok(())
 }
 
 const OBJ_HEADER_SIZE: usize = 64;
@@ -135,10 +121,9 @@ impl ObjAllocator {
         if self.allocated >= self.capacity {
             Ok(None)
         } else {
-            alloc(self.pool.inner, self.obj_size, self.data_type).map(|oid| {
-                self.allocated += 1;
-                Some(oid.into())
-            })
+            let oid = alloc(self.pool.inner, self.obj_size, self.data_type)?;
+            self.allocated += 1;
+            Ok(Some(oid.into()))
         }
     }
 
@@ -235,6 +220,7 @@ impl ObjPool {
         layout: Option<S>,
         size: usize,
     ) -> Result<*mut SysPMEMobjpool, Error> {
+        // layout might be useful for max-safe per downstream
         let layout = layout.map_or_else(
             || Ok(std::ptr::null::<c_char>()),
             |layout| {
@@ -275,7 +261,7 @@ impl ObjPool {
                     inner,
                     uuid_lo,
                     inner_path,
-                    rm_on_drop: false,
+                    rm_on_drop: false, //FIXME for multiple relays this should be set to true before dopping object
                 }
             })
         })
@@ -306,16 +292,11 @@ impl ObjPool {
             obj_size,
             data_type,
             capacity,
-        )
-        .and_then(move |_| {
-            Arc::try_unwrap(pool)
-                .map_err(|_| ErrorKind::GenericError.into())
-                .and_then(|pool| {
-                    Arc::try_unwrap(aqueue)
-                        .map(|aqueue| (pool, aqueue))
-                        .map_err(|_| ErrorKind::GenericError.into())
-                })
-        })
+        )?;
+
+        let pool = Arc::try_unwrap(pool).map_err(|_| ErrorKind::GenericError)?;
+        let aqueue = Arc::try_unwrap(aqueue).map_err(|_| ErrorKind::GenericError)?;
+        Ok((pool, aqueue))
     }
 
     pub fn with_capacity<P: AsRef<Path>, S: Into<String>>(
@@ -438,7 +419,7 @@ impl ObjPool {
     }
 
     pub fn allocate(&self, size: usize, data_type: u64) -> Result<ObjRawKey, Error> {
-        alloc(self.inner, size, data_type).map(|oid| oid.into())
+        Ok(alloc(self.inner, size, data_type)?.into())
     }
 
     fn key_to_oid(&self, key: ObjRawKey) -> Result<PMEMoid, Error> {
@@ -517,12 +498,14 @@ impl ObjPool {
         let mut arena_id: u32 = 0;
         unsafe { self.ctl_get(&QUERY_THREAD_ARENA_ID, &mut arena_id) }.map(|_| arena_id)
     }
-
+    /// works only when stats are on - but it create perfomance impact
     pub fn allocated_size_get(&self) -> Result<u64, Error> {
         let mut size: u64 = 0;
         unsafe { self.ctl_get(&QUERY_STATS_HEAP_CURR_ALLOCATED, &mut size) }.map(|_| size)
     }
 
+    /// does not seem to work right-now,
+    /// or we do not understand what it returns
     pub fn thread_allocated_size_get(&self, arena_id: u32) -> Result<u64, Error> {
         let query = CString::new(format!("heap.arena.{}.size", arena_id))
             .wrap_err(ErrorKind::GenericError)?;

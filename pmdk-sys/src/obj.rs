@@ -53,16 +53,26 @@ extern "C" {
 
     pub fn pmemobj_errormsg() -> *const c_char;
 
+    // translates persistent (pool-id, offset) to transient pointer
     pub fn pmemobj_direct(oid: PMEMoid) -> *mut c_void;
 
+    // translates pointer to (pool-id, offset)
     pub fn pmemobj_oid(addr: *const c_void) -> PMEMoid;
 
+    // extra u64 payload per object
     pub fn pmemobj_type_num(oid: PMEMoid) -> u64;
 
+    // iterator, no gurantee over consitency
     pub fn pmemobj_first(pop: *const PMEMobjpool) -> PMEMoid;
     pub fn pmemobj_next(oid: PMEMoid) -> PMEMoid;
 
+    // control memory allocation ect
     pub fn pmemobj_ctl_exec(pop: *mut PMEMobjpool, name: *const c_char, arg: *mut c_void) -> c_int;
     pub fn pmemobj_ctl_get(pop: *mut PMEMobjpool, name: *const c_char, arg: *mut c_void) -> c_int;
     pub fn pmemobj_ctl_set(pop: *mut PMEMobjpool, name: *const c_char, arg: *mut c_void) -> c_int;
 }
+
+// an optimization can be
+// 1. that pool can be loaded to the same memory space
+// 2. if we know that a key belongs to a specific volume, and it owns its pool, than we don't need pool id in key.
+// 3. pointer-to-offset calculation
