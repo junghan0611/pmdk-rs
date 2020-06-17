@@ -61,7 +61,7 @@ fn alloc(pop: *mut SysPMEMobjpool, size: usize, data_type: u64) -> Result<PMEMoi
     let mut oid = PMEMoid::default();
     let oidp = &mut oid;
 
-    #[allow(clippy::identity_conversion)]
+    #[allow(clippy::useless_conversion)]
     let size = size_t::from(size);
     let status = unsafe {
         pmemobj_alloc(
@@ -229,7 +229,7 @@ impl ObjPool {
                     .wrap_err(ErrorKind::LayoutError)
             },
         )?;
-        #[allow(clippy::identity_conversion)]
+        #[allow(clippy::useless_conversion)]
         let size = size_t::from(size);
         let mode = 0o666 as mode_t;
         let inner = unsafe { pmemobj_create(path.as_ptr() as *const c_char, layout, size, mode) };
@@ -403,7 +403,7 @@ impl ObjPool {
             .try_into()
             .wrap_err(ErrorKind::GenericError)?;
         let src = data.as_ptr() as *const c_void;
-        #[allow(clippy::identity_conversion)]
+        #[allow(clippy::useless_conversion)]
         let size = size_t::from(data.len());
         let mut rkey = rkey;
         unsafe {
