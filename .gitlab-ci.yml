@@ -1,44 +1,13 @@
-.cargo_lint_template: &cargo_lint
-  stage: lint
-  script:
-    - cargo clippy
+include:
+  - project: "replixio/cargo/gitlab-ci-templates"
+    file: "/git/credential.yml"
 
-.cargo_test_template: &cargo_test
-  stage: test
-  script:
-    - cargo test --all --verbose
+  - project: "replixio/cargo/gitlab-ci-templates"
+    file: "/cargo/test.yml"
 
 stages:
-  - lint
   - test
-  - deploy
 
-cargo:stable:
-  image: rustdocker/rust:stable
-  <<: *cargo_test
-
-cargo:beta:
-  image: rustdocker/rust:beta
-  <<: *cargo_test
-
-cargo:nightly:
-  image: rustdocker/rust:nightly
-  <<: *cargo_test
-
-cargo:clippy:
-  image: rustdocker/rustfmt_clippy:nightly
-  <<: *cargo_lint
-
-.pages:
-  image: rustdocker/rust:stable
-  stage: deploy
-  only:
-    - master
-  script:
-    - cargo doc
-    - rm -rf public
-    - mkdir public
-    - cp -R target/doc/* public
-  artifacts:
-    paths:
-    - public
+basic:test:
+  extends: .cargo:test
+  image: registry.gitlab.com/replixio/images/build-dev:default-20200615
