@@ -1,13 +1,13 @@
 build:
-    cargo build --all
+    cargo build --workspace
 clean:
     cargo clean
 test:
-    cargo test --all
+    cargo test --workspace
 clippy:
-    cargo clippy --all --tests --all-targets
+    cargo clippy --workspace --all-targets
 pedantic:
-    cargo clippy --all --all-targets --features pedantic
+    cargo clippy --workspace --all-targets --features pedantic
 update:
     cargo update
 bloat:
