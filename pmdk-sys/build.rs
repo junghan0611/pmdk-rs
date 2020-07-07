@@ -4,5 +4,5 @@
 //
 
 fn main() {
-    println!("cargo:rustc-link-search=native=/opt/pmdk-1.6/lib64");
+    println!("cargo:rustc-link-search=native=/opt/pmdk-1.6.1/lib");
 }
