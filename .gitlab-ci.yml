@@ -10,4 +10,4 @@ stages:
 
 basic:test:
   extends: .cargo:test
-  image: registry.gitlab.com/replixio/images/build-dev:default-20200615
+  image: registry.gitlab.com/replixio/images/build-dev:default-20200707
