@@ -28,7 +28,7 @@ failure = "0.1"
 futures = "0.1"
 lazy_static = "1.0"
 libc = "0.2"
-pmdk-sys = { path = "pmdk-sys", version = "0.8.0" }
+pmdk-sys = { path = "pmdk-sys", version = "0.9" }
 
 [dev-dependencies]
 futures-cpupool = "0.1"
