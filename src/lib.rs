@@ -31,8 +31,7 @@ use libc::{mode_t, size_t};
 use pmdk_sys::obj::{
     pmemobj_alloc, pmemobj_alloc_usable_size, pmemobj_close, pmemobj_create, pmemobj_ctl_exec,
     pmemobj_ctl_get, pmemobj_ctl_set, pmemobj_direct, pmemobj_first, pmemobj_free,
-    pmemobj_memcpy_persist, pmemobj_next, pmemobj_oid, pmemobj_type_num,
-    PMEMobjpool as SysPMEMobjpool,
+    pmemobj_memcpy_persist, pmemobj_next, pmemobj_oid, pmemobj_type_num, PMEMobjpool,
 };
 pub use pmdk_sys::PMEMoid;
 
@@ -130,7 +129,7 @@ unsafe impl Sync for ObjRawKey {}
 
 #[derive(Debug)]
 pub struct ObjPool {
-    inner: *mut SysPMEMobjpool,
+    inner: *mut PMEMobjpool,
     uuid_lo: u64,
     inner_path: CString,
     rm_on_drop: bool,
@@ -144,7 +143,7 @@ impl ObjPool {
         path: &CStr,
         layout: Option<S>,
         size: usize,
-    ) -> Result<*mut SysPMEMobjpool, Error> {
+    ) -> Result<*mut PMEMobjpool, Error> {
         // layout might be useful for max-safe per downstream
         let layout = layout.map_or_else(
             || Ok(std::ptr::null::<c_char>()),
@@ -314,8 +313,8 @@ impl ObjPool {
     }
 
     pub fn put(&self, data: &[u8], data_type: u64) -> Result<ObjRawKey, Error> {
-        self.allocate(data.len(), data_type)
-            .and_then(|key| self.update_by_rawkey(key, data, None))
+        let key = self.allocate(data.len(), data_type)?;
+        self.update_by_rawkey(key, data, None)
     }
 
     pub fn allocate(&self, size: usize, data_type: u64) -> Result<ObjRawKey, Error> {
@@ -344,12 +343,11 @@ impl ObjPool {
 
     fn alloc_multi(
         &self,
-        queue: Arc<ArrayQueue<ObjRawKey>>,
+        mut queue: Arc<ArrayQueue<ObjRawKey>>,
         size: usize,
         data_type: u64,
         nobjects: usize,
     ) -> Result<(), Error> {
-        let mut queue = queue;
         for _ in 0..nobjects {
             // stop if this is the only context, i.e. we get get a mutable reference
             if Arc::get_mut(&mut queue).is_some() {
@@ -457,7 +455,7 @@ impl ObjPool {
 impl Drop for ObjPool {
     fn drop(&mut self) {
         // TODO: remove for debug only
-        println!("Dropping obj pool {:?}", self.inner);
+        // println!("Dropping obj pool {:?}", self.inner);
         unsafe {
             pmemobj_close(self.inner);
             if self.rm_on_drop {
@@ -632,7 +630,7 @@ mod tests {
     #[test]
     fn create() -> Result<(), Error> {
         let obj_size = 0x1000; // 4k
-        let size = 0x100_0000; // 16 Mbassert_test_result
+        let size = 0x100_0000; // 16 Mb
         let obj_pool = TmpPool::new("__pmdk_basic__create_test.obj", obj_size, size / obj_size)?;
         println!("create:: MEM pool create: done!");
 
