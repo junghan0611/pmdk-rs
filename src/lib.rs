@@ -25,13 +25,13 @@ use std::sync::Arc;
 
 use crossbeam_queue::ArrayQueue;
 use lazy_static::lazy_static;
-use libc::{c_char, c_int, c_void};
+use libc::{c_char, c_int, c_void, iovec};
 use libc::{mode_t, size_t};
 
 use pmdk_sys::obj::{
-    pmemobj_alloc, pmemobj_alloc_usable_size, pmemobj_close, pmemobj_create, pmemobj_ctl_exec,
-    pmemobj_ctl_get, pmemobj_ctl_set, pmemobj_direct, pmemobj_first, pmemobj_free,
-    pmemobj_memcpy_persist, pmemobj_next, pmemobj_oid, pmemobj_type_num, PMEMobjpool,
+    pmemobj_alloc, pmemobj_alloc_usable_size, pmemobj_close, pmemobj_constr, pmemobj_create,
+    pmemobj_ctl_exec, pmemobj_ctl_get, pmemobj_ctl_set, pmemobj_direct, pmemobj_first,
+    pmemobj_free, pmemobj_memcpy_persist, pmemobj_next, pmemobj_oid, pmemobj_type_num, PMEMobjpool,
 };
 pub use pmdk_sys::PMEMoid;
 
@@ -313,24 +313,50 @@ impl ObjPool {
     }
 
     pub fn put(&self, data: &[u8], data_type: u64) -> Result<ObjRawKey, Error> {
-        let key = self.allocate(data.len(), data_type)?;
-        self.update_by_rawkey(key, data, None)
+        self.allocate(data.len(), data_type, Some(data))
     }
 
-    pub fn allocate(&self, size: usize, data_type: u64) -> Result<ObjRawKey, Error> {
+    pub fn allocate<'a>(
+        &self,
+        size: usize,
+        data_type: u64,
+        arg: impl Into<Option<&'a [u8]>>,
+    ) -> Result<ObjRawKey, Error> {
         let mut oid = PMEMoid::default();
         let oidp = &mut oid;
+        let data = arg.into();
+        if let Some(data) = data {
+            if data.len() > size {
+                return Err(failure::format_err!(
+                    "Invalid parameter: data.len() > size,data.len() = {}, size to alloc {} ",
+                    data.len(),
+                    size
+                )
+                .context(ErrorKind::GenericError)
+                .into());
+            }
+        }
 
-        #[allow(clippy::useless_conversion)]
-        let size = size_t::from(size);
+        let constructor = data.as_ref().map(|_| memcpy_persist as pmemobj_constr);
+        let mut arg = data
+            .as_ref()
+            .map(|data| iovec {
+                iov_base: data.as_ptr() as *const c_void as *mut c_void,
+                iov_len: data.len(),
+            })
+            .unwrap_or_else(|| iovec {
+                iov_base: std::ptr::null_mut::<c_void>(),
+                iov_len: 0,
+            });
+
         let status = unsafe {
             pmemobj_alloc(
                 self.inner,
                 oidp as *mut PMEMoid,
                 size,
                 data_type,
-                None,
-                std::ptr::null_mut::<c_void>(),
+                constructor,
+                &mut arg as *mut iovec as *mut c_void,
             )
         };
 
@@ -354,7 +380,7 @@ impl ObjPool {
                 break;
             }
             queue
-                .push(self.allocate(size, data_type)?)
+                .push(self.allocate(size, data_type, None)?)
                 .wrap_err(ErrorKind::PmdkNoSpaceInQueueError)?;
         }
         Ok(())
@@ -488,6 +514,16 @@ impl Iterator for ObjPoolIter {
             None
         }
     }
+}
+
+unsafe extern "C" fn memcpy_persist(
+    pop: *mut PMEMobjpool,
+    ptr: *mut c_void,
+    arg: *mut c_void,
+) -> c_int {
+    let arg = arg as *mut iovec;
+    pmemobj_memcpy_persist(pop, ptr, (*arg).iov_base, (*arg).iov_len);
+    0
 }
 
 const OBJ_HEADER_SIZE: usize = 64;
@@ -837,11 +873,13 @@ mod tests {
             .spawn_fn(move || {
                 (0..capacity)
                     .map(move |_| {
-                        obj_pool.allocate(obj_size, TEST_TYPE_NUM).and_then(|key| {
-                            aqueue_clone
-                                .push(key)
-                                .wrap_err(ErrorKind::PmdkNoSpaceInQueueError)
-                        })
+                        obj_pool
+                            .allocate(obj_size, TEST_TYPE_NUM, None)
+                            .and_then(|key| {
+                                aqueue_clone
+                                    .push(key)
+                                    .wrap_err(ErrorKind::PmdkNoSpaceInQueueError)
+                            })
                     })
                     .collect::<Result<Vec<_>, Error>>()
             })

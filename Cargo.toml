@@ -36,3 +36,15 @@ nix = "0.15"
 rand = "0.5"
 tokio = "0.1"
 tempfile = "3.1"
+
+[profile.test]
+debug = true
+
+[profile.release]
+debug = true
+
+[profile.dev]
+debug = true
+
+[profile.bench]
+debug = true
