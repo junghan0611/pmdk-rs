@@ -25,8 +25,7 @@ use std::sync::Arc;
 
 use crossbeam_queue::ArrayQueue;
 use lazy_static::lazy_static;
-use libc::{c_char, c_int, c_void, iovec};
-use libc::{mode_t, size_t};
+use libc::{c_char, c_int, c_void, iovec, mode_t};
 
 use pmdk_sys::obj::{
     pmemobj_alloc, pmemobj_alloc_usable_size, pmemobj_close, pmemobj_constr, pmemobj_create,
@@ -153,8 +152,6 @@ impl ObjPool {
                     .wrap_err(ErrorKind::LayoutError)
             },
         )?;
-        #[allow(clippy::useless_conversion)]
-        let size = size_t::from(size);
         let mode = 0o666 as mode_t;
         let inner = unsafe { pmemobj_create(path.as_ptr() as *const c_char, layout, size, mode) };
 
@@ -303,7 +300,7 @@ impl ObjPool {
             .wrap_err(ErrorKind::GenericError)?;
         let src = data.as_ptr() as *const c_void;
         #[allow(clippy::useless_conversion)]
-        let size = size_t::from(data.len());
+        let size = data.len();
         let mut rkey = rkey;
         unsafe {
             let dest = rkey.as_mut_ptr().offset(offset);

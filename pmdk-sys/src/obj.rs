@@ -3,8 +3,7 @@
 // Use is subject to license terms.
 //
 
-use libc::{c_char, c_int, c_void};
-use libc::{mode_t, size_t};
+use libc::{c_char, c_int, c_void, mode_t};
 
 use crate::PMEMoid;
 
@@ -20,7 +19,7 @@ extern "C" {
     pub fn pmemobj_create(
         path: *const c_char,
         layout: *const c_char,
-        poolsize: size_t,
+        poolsize: usize,
         mode: mode_t,
     ) -> *mut PMEMobjpool;
     pub fn pmemobj_close(pop: *mut PMEMobjpool);
@@ -30,7 +29,7 @@ extern "C" {
     pub fn pmemobj_alloc(
         pop: *mut PMEMobjpool,
         oidp: *mut PMEMoid,
-        size: size_t,
+        size: usize,
         type_num: u64,
         constructor: Option<pmemobj_constr>,
         arg: *mut c_void,
@@ -42,11 +41,11 @@ extern "C" {
         pop: *mut PMEMobjpool,
         dest: *mut c_void,
         src: *const c_void,
-        len: size_t,
+        len: usize,
     );
-    pub fn pmemobj_memset_persist(pop: *mut PMEMobjpool, dest: *mut c_void, c: c_int, len: size_t);
-    pub fn pmemobj_persist(pop: *mut PMEMobjpool, addr: *const c_void, len: size_t);
-    pub fn pmemobj_flush(pop: *mut PMEMobjpool, addr: *const c_void, len: size_t);
+    pub fn pmemobj_memset_persist(pop: *mut PMEMobjpool, dest: *mut c_void, c: c_int, len: usize);
+    pub fn pmemobj_persist(pop: *mut PMEMobjpool, addr: *const c_void, len: usize);
+    pub fn pmemobj_flush(pop: *mut PMEMobjpool, addr: *const c_void, len: usize);
     pub fn pmemobj_drain(pop: *mut PMEMobjpool);
 
     // Error handling:
