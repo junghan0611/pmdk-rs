@@ -309,10 +309,6 @@ impl ObjPool {
         Ok(rkey)
     }
 
-    pub fn put(&self, data: &[u8], data_type: u64) -> Result<ObjRawKey, Error> {
-        self.allocate(data.len(), data_type, Some(data))
-    }
-
     pub fn allocate<'a>(
         &self,
         size: usize,
@@ -670,7 +666,7 @@ mod tests {
         let keys_vals = (0..100)
             .map(|i| {
                 let buf = vec![0xafu8; 0x10]; // 16 byte
-                obj_pool.put(&buf, i)
+                obj_pool.allocate(buf.len(), i, Some(&buf[..]))
                     .map(u64::from)
                     .map(|key| {
                         if key & DIRECT_PTR_MASK != 0u64 {
@@ -967,7 +963,7 @@ mod tests {
         (0..nobj)
             .map(|i| {
                 let size = io_sizes[(i + arena_id as usize) % io_sizes.len()];
-                pool.put(&random_data[0..size], i as u64)
+                pool.allocate(size, i as u64, Some(&random_data[0..size]))
             })
             .collect::<Result<Vec<ObjRawKey>, Error>>()
     }
