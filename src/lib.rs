@@ -89,11 +89,11 @@ impl From<ObjRawKey> for PMEMoid {
 }
 
 impl ObjRawKey {
-    const fn as_ptr(&self) -> *const c_void {
+    pub const fn as_ptr(&self) -> *const c_void {
         self.0 as *const c_void
     }
 
-    fn as_mut_ptr(&mut self) -> *mut c_void {
+    pub fn as_mut_ptr(&mut self) -> *mut c_void {
         self.0
     }
 
@@ -474,7 +474,7 @@ impl ObjPool {
 impl Drop for ObjPool {
     fn drop(&mut self) {
         // TODO: remove for debug only
-        // println!("Dropping obj pool {:?}", self.inner);
+        println!("Dropping obj pool {:?}", self.inner);
         unsafe {
             pmemobj_close(self.inner);
             if self.rm_on_drop {
