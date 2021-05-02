@@ -29,7 +29,7 @@ use lazy_static::lazy_static;
 use libc::{c_char, c_int, c_void, iovec, mode_t};
 
 use pmdk_sys::obj::{
-    pmemobj_alloc, pmemobj_persist, pmemobj_realloc, pmemobj_alloc_usable_size, pmemobj_close, pmemobj_constr, pmemobj_create,
+    pmemobj_alloc, pmemobj_persist, pmemobj_flush, pmemobj_drain, pmemobj_realloc, pmemobj_alloc_usable_size, pmemobj_close, pmemobj_constr, pmemobj_create,
     pmemobj_ctl_exec, pmemobj_ctl_get, pmemobj_ctl_set, pmemobj_direct, pmemobj_first,
     pmemobj_free, pmemobj_memcpy_persist, pmemobj_next, pmemobj_oid, pmemobj_type_num, PMEMobjpool,
 };
@@ -388,6 +388,7 @@ impl ObjPool {
         }
     }
 
+    /// clwb + flush
     pub fn persist<'a>(
         &self,
         ptr: *const c_void,
@@ -400,6 +401,34 @@ impl ObjPool {
                 self.inner,
                 ptr,
                 size,                
+            )
+        };
+    }
+
+    /// only clwb
+    pub fn flush<'a>(
+        &self,
+        ptr: *const c_void,
+        size: usize,        
+    ) {
+        println!{"[PMDK-RS] Flush {:?}", ptr};
+        
+        unsafe {
+            pmemobj_flush(
+                self.inner,
+                ptr,
+                size,                
+            )
+        };
+    }
+
+    /// only flush
+    pub fn drain<'a>(
+        &self,        
+    ) {
+        unsafe {
+            pmemobj_drain(
+                self.inner
             )
         };
     }
