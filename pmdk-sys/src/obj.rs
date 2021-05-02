@@ -36,6 +36,12 @@ extern "C" {
     ) -> c_int;
     pub fn pmemobj_alloc_usable_size(oid: PMEMoid) -> usize;
     pub fn pmemobj_free(oidp: *mut PMEMoid);
+    pub fn pmemobj_realloc(
+        pop: *mut PMEMobjpool,
+        oidp: *mut PMEMoid,
+        size: usize,
+        type_num: u64,      
+    ) -> c_int;
 
     pub fn pmemobj_memcpy_persist(
         pop: *mut PMEMobjpool,

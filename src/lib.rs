@@ -11,8 +11,9 @@
 #![warn(missing_debug_implementations)]
 #![warn(rust_2018_compatibility)]
 #![warn(rust_2018_idioms)]
-#![warn(unused)]
-#![deny(warnings)]
+//#![warn(unused)]
+//#![deny(warnings)]
+//#![deny(unused_imports)]
 #![feature(test)]
 
 #[allow(unused_extern_crates)]
@@ -28,7 +29,7 @@ use lazy_static::lazy_static;
 use libc::{c_char, c_int, c_void, iovec, mode_t};
 
 use pmdk_sys::obj::{
-    pmemobj_alloc, pmemobj_alloc_usable_size, pmemobj_close, pmemobj_constr, pmemobj_create,
+    pmemobj_alloc, pmemobj_persist, pmemobj_realloc, pmemobj_alloc_usable_size, pmemobj_close, pmemobj_constr, pmemobj_create,
     pmemobj_ctl_exec, pmemobj_ctl_get, pmemobj_ctl_set, pmemobj_direct, pmemobj_first,
     pmemobj_free, pmemobj_memcpy_persist, pmemobj_next, pmemobj_oid, pmemobj_type_num, PMEMobjpool,
 };
@@ -358,6 +359,49 @@ impl ObjPool {
         } else {
             Err(Error::obj_error())
         }
+    }
+
+    pub fn reallocate<'a>(
+        &self,
+        ptr: *const c_void,
+        size: usize,
+        data_type: u64,        
+    ) -> Result<ObjRawKey, Error> {        
+        let mut oid= unsafe {
+            pmemobj_oid(ptr)
+        };        
+        let oidp = &mut oid;
+                
+        let status = unsafe {
+            pmemobj_realloc(
+                self.inner,
+                oidp as *mut PMEMoid,
+                size,
+                data_type,
+            )
+        };
+
+        if status == 0 {
+            Ok(oid.into())
+        } else {
+            Err(Error::obj_error())
+        }
+    }
+
+    pub fn persist<'a>(
+        &self,
+        ptr: *const c_void,
+        size: usize,        
+    ) {
+        println!{"[PMDK-RS] Persist {:?}", ptr};
+        
+        unsafe {
+            pmemobj_persist(
+                self.inner,
+                ptr,
+                size,                
+            )
+        };
     }
 
     fn alloc_multi(
