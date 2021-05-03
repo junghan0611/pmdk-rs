@@ -32,7 +32,7 @@ use pmdk_sys::obj::{
     pmemobj_alloc, pmemobj_alloc_usable_size, pmemobj_close, pmemobj_constr, pmemobj_create,
     pmemobj_ctl_exec, pmemobj_ctl_get, pmemobj_ctl_set, pmemobj_direct, pmemobj_drain,
     pmemobj_first, pmemobj_flush, pmemobj_free, pmemobj_memcpy_persist, pmemobj_next, pmemobj_oid,
-    pmemobj_persist, pmemobj_realloc, pmemobj_type_num, PMEMobjpool,
+    pmemobj_open, pmemobj_persist, pmemobj_realloc, pmemobj_type_num, PMEMobjpool,
 };
 pub use pmdk_sys::PMEMoid;
 
@@ -546,6 +546,12 @@ impl Iterator for ObjPoolIter {
             None
         }
     }
+}
+
+unsafe extern "C" fn pm_open(path: *const c_char, layout: *const c_char) -> *mut PMEMobjpool {
+    println!("PM_OPEN Path:{:?}", path);
+    let pop = pmemobj_open(path, layout);
+    pop
 }
 
 unsafe extern "C" fn memcpy_persist(
