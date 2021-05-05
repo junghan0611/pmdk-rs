@@ -28,7 +28,7 @@ use crossbeam_queue::ArrayQueue;
 use lazy_static::lazy_static;
 use libc::{c_char, c_int, c_void, iovec, mode_t};
 
-use pmdk_sys::obj::{
+pub use pmdk_sys::obj::{
     pmemobj_alloc, pmemobj_alloc_usable_size, pmemobj_close, pmemobj_constr, pmemobj_create,
     pmemobj_ctl_exec, pmemobj_ctl_get, pmemobj_ctl_set, pmemobj_direct, pmemobj_drain,
     pmemobj_first, pmemobj_flush, pmemobj_free, pmemobj_memcpy_persist, pmemobj_next, pmemobj_oid,
@@ -130,7 +130,7 @@ unsafe impl Sync for ObjRawKey {}
 
 #[derive(Debug)]
 pub struct ObjPool {
-    inner: *mut PMEMobjpool,
+    pub inner: *mut PMEMobjpool,
     uuid_lo: u64,
     inner_path: CString,
     rm_on_drop: bool,
@@ -382,16 +382,16 @@ impl ObjPool {
 
     /// clwb + flush
     pub fn persist<'a>(&self, ptr: *const c_void, size: usize) {
-        println! {"[PMDK-RS] Persist {:?}", ptr};
+        //println! {"[PMDK-RS] Persist {:?}", ptr};
 
         unsafe { pmemobj_persist(self.inner, ptr, size) };
     }
 
     /// only clwb
     pub fn flush<'a>(&self, ptr: *const c_void, size: usize) {
-        println! {"[PMDK-RS] Flush {:?}", ptr};
+        //println! {"[PMDK-RS] Flush {:?}", ptr};
 
-        unsafe { pmemobj_flush(self.inner, ptr, size) };
+        //unsafe { pmemobj_flush(self.inner, ptr, size) };
     }
 
     /// only flush
