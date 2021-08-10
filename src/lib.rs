@@ -380,6 +380,11 @@ impl ObjPool {
         }
     }
 
+    pub fn dealloc(&self, ptr: *const c_void) {        
+        let mut oid = unsafe { pmemobj_oid(ptr) };
+        unsafe { pmemobj_free(&mut oid as *mut PMEMoid) };        
+    }
+
     /// clwb + flush
     pub fn persist<'a>(&self, ptr: *const c_void, size: usize) {
         //println! {"[PMDK-RS] Persist {:?}", ptr};
@@ -705,7 +710,7 @@ mod tests {
     fn create() -> Result<(), Error> {
         let obj_size = 0x1000; // 4k
         let size = 0x100_0000; // 16 Mb
-        let obj_pool = TmpPool::new("__pmdk_basic__create_test.obj", obj_size, size / obj_size)?;
+        let obj_pool = TmpPool::new("/mnt/pmem0/__pmdk_basic__create_test.obj", obj_size, size / obj_size)?;
         println!("create:: MEM pool create: done!");
 
         let keys_vals = (0..100)
